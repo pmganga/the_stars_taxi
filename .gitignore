@@ -1,3 +1,5 @@
 data/yellow_tripdata_2019-01.csv
 data/cleaned_trips.csv
 data/exclusion_log.csv
+data/engineered_trips.csv
+data/cleaned_trips.csv
