@@ -3,3 +3,4 @@ data/cleaned_trips.csv
 data/exclusion_log.csv
 data/engineered_trips.csv
 data/cleaned_trips.csv
+db/taxi.db
