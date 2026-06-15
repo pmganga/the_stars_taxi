@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>NYC Mobility Explorer — Taxi Trip Analytics</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
+        rel="stylesheet">
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="style.css" />
+</head>
+
+<body>
+
+    <div class="app">
+
+        <!--  Sidebar (desktop/tablet landscape)  -->
+        <nav class="sidebar" aria-label="Main navigation">
+            <div class="sidebar_brand">
+                <span class="sidebar_medallion">NYC</span>
+                <span class="sidebar_brand-text">Mobility<br>Explorer</span>
+            </div>
+
+            <ul class="sidebar_nav">
+                <li>
+                    <a href="#dashboard" class="sidebar_link sidebar_link--active" data-section="dashboard">
+                        <span class="sidebar_icon" aria-hidden="true">⬡</span>
+                        <span class="sidebar_label">Dashboard</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="#trips" class="sidebar_link" data-section="trips">
+                        <span class="sidebar_icon" aria-hidden="true">≡</span>
+                        <span class="sidebar_label">Trips</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="#map" class="sidebar_link" data-section="map">
+                        <span class="sidebar_icon" aria-hidden="true">◎</span>
+                        <span class="sidebar_label">Zone map</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="#about" class="sidebar_link" data-section="about">
+                        <span class="sidebar_icon" aria-hidden="true">◉</span>
+                        <span class="sidebar_label">About</span>
+                    </a>
+                </li>
+            </ul>
+
+            <button class="sidebar_theme-toggle" id="theme-toggle" aria-label="Toggle light and dark theme">
+                <span class="sidebar_icon" aria-hidden="true">☼</span>
+                <span class="sidebar_label">Theme</span>
+            </button>
+        </nav>
+
+        <!--  Bottom nav (phones/small tablets)  -->
+        <nav class="bottomnav" aria-label="Main navigation">
+            <a href="#dashboard" class="bottomnav_link bottomnav_link--active" data-section="dashboard">
+                <span class="bottomnav_icon" aria-hidden="true">⬡</span>
+                <span class="bottomnav_label">Dashboard</span>
+            </a>
+            <a href="#trips" class="bottomnav_link" data-section="trips">
+                <span class="bottomnav_icon" aria-hidden="true">≡</span>
+                <span class="bottomnav_label">Trips</span>
+            </a>
+            <a href="#map" class="bottomnav_link" data-section="map">
+                <span class="bottomnav_icon" aria-hidden="true">◎</span>
+                <span class="bottomnav_label">Map</span>
+            </a>
+            <a href="#about" class="bottomnav_link" data-section="about">
+                <span class="bottomnav_icon" aria-hidden="true">◉</span>
+                <span class="bottomnav_label">About</span>
+            </a>
+            <button class="bottomnav_link bottomnav_link--theme" id="theme-toggle-mobile"
+                aria-label="Toggle light and dark theme">
+                <span class="bottomnav_icon" aria-hidden="true">☼</span>
+                <span class="bottomnav_label">Theme</span>
+            </button>
+        </nav>
+
+        <!--  Main  -->
+        <div class="main">
+
+            <!-- Topbar -->
+            <header class="topbar">
+                <div class="topbar_title-group">
+                    <h1 class="topbar_title">NYC Mobility Explorer</h1>
+                    <p class="topbar_subtitle">Yellow Taxi Trips · January 2019</p>
+                </div>
+                <div class="topbar_date">
+                    <label for="global-date" class="topbar_date-label">Pickup date</label>
+                    <input type="date" id="global-date" value="2019-01-15" />
+                </div>
+            </header>
+
+            <!--  Dashboard section  -->
+            <section id="dashboard" class="section section--active" aria-label="Dashboard">
+
+                <!-- KPI grid -->
+                <div class="kpi-grid">
+                    <div class="kpi-card">
+                        <span class="kpi-card_medallion" data-stat="total-trips">—</span>
+                        <span class="kpi-card_label">Total trips</span>
+                    </div>
+                    <div class="kpi-card">
+                        <span class="kpi-card_medallion" data-stat="total-revenue">—</span>
+                        <span class="kpi-card_label">Fare revenue</span>
+                    </div>
+                    <div class="kpi-card">
+                        <span class="kpi-card_medallion" data-stat="avg-fare">—</span>
+                        <span class="kpi-card_label">Avg fare</span>
+                    </div>
+                    <div class="kpi-card">
+                        <span class="kpi-card_medallion" data-stat="avg-distance">—</span>
+                        <span class="kpi-card_label">Avg distance (mi)</span>
+                    </div>
+                    <div class="kpi-card">
+                        <span class="kpi-card_medallion" data-stat="avg-tip-pct">—</span>
+                        <span class="kpi-card_label">Avg tip %</span>
+                    </div>
+                    <div class="kpi-card">
+                        <span class="kpi-card_medallion" data-stat="peak-hour">—</span>
+                        <span class="kpi-card_label">Peak hour</span>
+                    </div>
+                </div>
+
+                <!-- Charts row 1 -->
+                <div class="chart-grid">
+                    <div class="chart-card chart-card--wide">
+                        <div class="chart-card_header">
+                            <div>
+                                <h3 class="chart-card_title">Hourly trip volume</h3>
+                                <p class="chart-card_subtitle">Trips by hour of day</p>
+                            </div>
+                            <button class="chip-toggle" id="toggle-hourly-view">Switch to line</button>
+                        </div>
+                        <div class="chart-card_body">
+                            <canvas id="hourly-chart"></canvas>
+                        </div>
+                    </div>
+
+                    <div class="chart-card">
+                        <div class="chart-card_header">
+                            <div>
+                                <h3 class="chart-card_title">Top pickup zones</h3>
+                                <p class="chart-card_subtitle">Highest-volume origins</p>
+                            </div>
+                        </div>
+                        <div class="chart-card_body">
+                            <canvas id="top-zones-chart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Charts row 2 -->
+                <div class="chart-grid">
+                    <div class="chart-card">
+                        <div class="chart-card_header">
+                            <div>
+                                <h3 class="chart-card_title">Fare vs distance</h3>
+                                <p class="chart-card_subtitle">Relationship between trip length and cost</p>
+                            </div>
+                            <label class="chip-toggle chip-toggle--checkbox">
+                                <input type="checkbox" id="trendline-toggle" />
+                                Trendline
+                            </label>
+                        </div>
+                        <div class="chart-card_body">
+                            <canvas id="scatter-chart"></canvas>
+                        </div>
+                    </div>
+
+                    <div class="chart-card">
+                        <div class="chart-card_header">
+                            <div>
+                                <h3 class="chart-card_title">Payment split</h3>
+                                <p class="chart-card_subtitle">Card vs cash vs other</p>
+                            </div>
+                        </div>
+                        <div class="chart-card_body">
+                            <canvas id="payment-chart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!--  Trips section (filters + table)  -->
+            <section id="trips" class="section" aria-label="Trip records">
+                <div class="data-layout">
+
+                    <aside class="filters-panel">
+                        <h2 class="filters-panel_heading">Filter trips</h2>
+
+                        <div class="filter-group">
+                            <label class="filter-group_label" for="borough-filter">Borough</label>
+                            <select id="borough-filter" class="filter-group_control">
+                                <option value="all">All</option>
+                                <option value="Manhattan">Manhattan</option>
+                                <option value="Brooklyn">Brooklyn</option>
+                                <option value="Queens">Queens</option>
+                                <option value="Bronx">Bronx</option>
+                                <option value="Staten Island">Staten Island</option>
+                            </select>
+                        </div>
+
+                        <div class="filter-group">
+                            <label class="filter-group_label">Fare range ($)</label>
+                            <div class="filter-group_dual">
+                                <input type="number" id="min-fare" placeholder="Min" value="0" step="5" />
+                                <span class="filter-group_dual-sep">–</span>
+                                <input type="number" id="max-fare" placeholder="Max" value="600" step="5" />
+                            </div>
+                        </div>
+
+                        <div class="filter-group">
+                            <label class="filter-group_label">Distance (miles)</label>
+                            <div class="filter-group_dual">
+                                <input type="number" id="min-distance" placeholder="Min" value="0" step="0.5" />
+                                <span class="filter-group_dual-sep">–</span>
+                                <input type="number" id="max-distance" placeholder="Max" value="50" step="0.5" />
+                            </div>
+                        </div>
+
+                        <div class="filter-group">
+                            <label class="filter-group_label" for="hour-filter">Hour of day</label>
+                            <select id="hour-filter" class="filter-group_control">
+                                <option value="all">All hours</option>
+                                <option value="morning">Morning (6am–12pm)</option>
+                                <option value="afternoon">Afternoon (12pm–5pm)</option>
+                                <option value="evening">Evening (5pm–9pm)</option>
+                                <option value="night">Night (9pm–6am)</option>
+                            </select>
+                        </div>
+
+                        <button class="btn btn--primary" id="apply-filters-btn">Apply filters</button>
+                        <button class="btn btn--ghost" id="reset-filters-btn">Reset</button>
+                    </aside>
+
+                    <div class="table-panel">
+                        <div class="table-panel_header">
+                            <h2 class="table-panel_heading">Trip records</h2>
+                            <button class="btn btn--accent" id="export-csv-btn">Export filtered CSV</button>
+                        </div>
+                        <div class="table-panel_scroll">
+                            <table id="trips-table" class="trips-table">
+                                <thead>
+                                    <tr>
+                                        <th>Pickup time</th>
+                                        <th>Dropoff time</th>
+                                        <th>Pickup zone</th>
+                                        <th>Dropoff zone</th>
+                                        <th>Distance (mi)</th>
+                                        <th>Fare ($)</th>
+                                        <th>Tip ($)</th>
+                                        <th>Total ($)</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td colspan="8" class="trips-table_loading">Loading trip data…</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                </div>
+            </section>
+
+            <!--  Map section  -->
+            <section id="map" class="section" aria-label="Zone map">
+                <div class="map-toolbar">
+                    <div class="filter-group filter-group--inline">
+                        <label class="filter-group_label" for="map-metric">Color zones by</label>
+                        <select id="map-metric" class="filter-group_control">
+                            <option value="pickup_count">Pickup volume</option>
+                            <option value="dropoff_count">Dropoff volume</option>
+                            <option value="avg_fare">Average fare</option>
+                        </select>
+                    </div>
+                    <div class="filter-group filter-group--inline">
+                        <label class="filter-group_label" for="map-borough">Borough</label>
+                        <select id="map-borough" class="filter-group_control">
+                            <option value="">All boroughs</option>
+                            <option value="Manhattan">Manhattan</option>
+                            <option value="Brooklyn">Brooklyn</option>
+                            <option value="Queens">Queens</option>
+                            <option value="Bronx">Bronx</option>
+                            <option value="Staten Island">Staten Island</option>
+                        </select>
+                    </div>
+                    <button class="btn btn--primary" id="apply-map-filters">Apply</button>
+                </div>
+
+                <div class="map-container">
+                    <div id="leaflet-map"></div>
+                </div>
+
+                <div class="map-legend">
+                    <span><span class="map-legend_swatch map-legend_swatch--low"></span>Low</span>
+                    <span><span class="map-legend_swatch map-legend_swatch--mid"></span>Medium</span>
+                    <span><span class="map-legend_swatch map-legend_swatch--high"></span>High</span>
+                    <span class="map-legend_hint">Click a zone for details</span>
+                </div>
+            </section>
+
+            
+</body>
+
+</html>
