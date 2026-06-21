@@ -443,6 +443,79 @@ input {
     height: 100% !important;
 }
 
+/* ── Skeleton loading states ─────────────────────────────────── */
+
+@keyframes skeleton-pulse {
+    0%, 100% { opacity: 0.55; }
+    50% { opacity: 1; }
+}
+
+.skeleton {
+    background: var(--color-surface-2);
+    border-radius: var(--radius-sm);
+    animation: skeleton-pulse 1.4s ease-in-out infinite;
+}
+
+/* KPI card skeleton: mimics the medallion chip + label */
+.kpi-card__medallion.skeleton {
+    width: 64px;
+    height: 1.5rem;
+    padding: 0.3rem 0.65rem;
+}
+
+.kpi-card__label.skeleton {
+    width: 70%;
+    height: 0.78rem;
+    margin-top: 0.2rem;
+}
+
+/* Chart skeleton: fills the chart body while data is loading */
+.chart-card__skeleton {
+    display: flex;
+    align-items: flex-end;
+    gap: 0.5rem;
+    height: 100%;
+    padding: 0.5rem 0;
+}
+
+.chart-card__skeleton .skeleton {
+    flex: 1;
+    border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+}
+
+.chart-card__skeleton .skeleton:nth-child(1) { height: 55%; }
+.chart-card__skeleton .skeleton:nth-child(2) { height: 80%; }
+.chart-card__skeleton .skeleton:nth-child(3) { height: 40%; }
+.chart-card__skeleton .skeleton:nth-child(4) { height: 90%; }
+.chart-card__skeleton .skeleton:nth-child(5) { height: 65%; }
+.chart-card__skeleton .skeleton:nth-child(6) { height: 75%; }
+
+/* Map loading overlay */
+.map-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    height: 100%;
+    min-height: 480px;
+    color: var(--color-text-dim);
+    font-size: 0.9rem;
+}
+
+.map-loading__spinner {
+    width: 32px;
+    height: 32px;
+    border: 3px solid var(--color-border);
+    border-top-color: var(--color-navy);
+    border-radius: 50%;
+    animation: map-spin 0.8s linear infinite;
+}
+
+@keyframes map-spin {
+    to { transform: rotate(360deg); }
+}
+
 .chip-toggle {
     background: var(--color-surface-2);
     border: 1px solid var(--color-border);
@@ -666,6 +739,7 @@ input {
 }
 
 .map-container {
+    position: relative;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     overflow: hidden;
@@ -677,6 +751,19 @@ input {
     width: 100%;
     height: 100%;
     min-height: 480px;
+}
+
+#map-loading {
+    position: absolute;
+    inset: 0;
+    background: var(--color-bg);
+    z-index: 500;
+    transition: opacity 0.25s ease;
+}
+
+#map-loading.map-loading--hidden {
+    opacity: 0;
+    pointer-events: none;
 }
 
 .map-legend {
