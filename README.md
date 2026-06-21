@@ -1,6 +1,6 @@
 ## README.md
 
-```
+
 # NYC Mobility Explorer
 
 ## Overview

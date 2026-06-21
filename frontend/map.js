@@ -6,7 +6,48 @@ let zonesGeoJSON = null;
 let tileLayer = null;
 let currentMetric = 'pickup_count';
 let currentBorough = '';
+let previousBorough = null; // null = no prior render yet (true first load)
 let isMapReady = false;
+
+// City-wide view used as the "zoomed out" resting point between boroughs
+const CITY_CENTER = [40.7128, -73.95];
+const CITY_ZOOM = 11;
+const FLY_DURATION = 0.6; // seconds, subtle not exaggerated
+const FLY_OUT_PAUSE_MS = 350; // brief pause at city view before flying into the new borough
+
+// sessionStorage-backed cache for /api/zones results, keyed by
+// "metric|borough". /api/zones runs a correlated subquery per zone with
+// no server-side cache, so without this every dropdown change - and every
+// page reload - re-fetches and re-runs that query from scratch.
+const ZONE_CACHE_PREFIX = 'nyc_mobility_zones_';
+const ZONE_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes, matches app.py's other caches
+
+function zoneCacheKey(metric, borough) {
+    return ZONE_CACHE_PREFIX + metric + '|' + (borough || '');
+}
+
+function readZoneCache(metric, borough) {
+    try {
+        var raw = sessionStorage.getItem(zoneCacheKey(metric, borough));
+        if (!raw) return null;
+        var parsed = JSON.parse(raw);
+        if ((Date.now() - parsed.timestamp) >= ZONE_CACHE_TTL_MS) return null;
+        return new Map(parsed.entries); // entries stored as [ [zoneId, value], ... ]
+    } catch (e) {
+        return null;
+    }
+}
+
+function writeZoneCache(metric, borough, valuesMap) {
+    try {
+        sessionStorage.setItem(zoneCacheKey(metric, borough), JSON.stringify({
+            timestamp: Date.now(),
+            entries: Array.from(valuesMap.entries()),
+        }));
+    } catch (e) {
+        // sessionStorage full or unavailable - just skip caching this entry
+    }
+}
 
 const TILE_URLS = {
     dark: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
@@ -85,6 +126,11 @@ async function loadGeoJSON() {
 
 // Load metric values
 async function loadMetricValues(metric, borough) {
+    var cached = readZoneCache(metric, borough);
+    if (cached) {
+        return cached;
+    }
+
     try {
         var data = await DataAPI.getZones(metric, borough);
 
@@ -93,14 +139,13 @@ async function loadMetricValues(metric, borough) {
             for (var i = 0; i < data.length; i++) {
                 values.set(data[i].zone_id, data[i].metric_value);
             }
-            console.log('Loaded ' + values.size + ' metric values');
+            writeZoneCache(metric, borough, values);
             return values;
         }
     } catch (error) {
         console.warn('API failed:', error);
     }
 
-    console.log('Using mock data');
     var geo = await loadGeoJSON();
     return generateMockData(geo.features);
 }
@@ -112,16 +157,23 @@ async function renderMap() {
         return;
     }
 
+    var loadingEl = document.getElementById('map-loading');
+    if (loadingEl && !isMapReady) {
+        loadingEl.innerHTML = '<div class="map-loading__spinner"></div><span>Loading zone map\u2026</span>';
+        loadingEl.classList.remove('map-loading--hidden');
+    }
+
     currentMetric = document.getElementById('map-metric')?.value || 'pickup_count';
     currentBorough = document.getElementById('map-borough')?.value || '';
-
-    console.log('Rendering map...');
 
     var geo = await loadGeoJSON();
     var values = await loadMetricValues(currentMetric, currentBorough);
 
     if (!geo.features || geo.features.length === 0) {
-        console.error('No GeoJSON features');
+        if (loadingEl && !isMapReady) {
+            loadingEl.innerHTML = '<span>Could not load zone map data.</span>';
+            loadingEl.classList.remove('map-loading--hidden');
+        }
         return;
     }
 
@@ -131,8 +183,6 @@ async function renderMap() {
             return f.properties.borough === currentBorough;
         });
     }
-
-    console.log('Showing ' + features.length + ' zones');
 
     // Group by borough for per-borough coloring
     var boroughRanges = {};
@@ -180,14 +230,13 @@ async function renderMap() {
         return getColor(value, range.min, range.max);
     }
 
-    // Remove old layer
-    if (zoneLayer) {
-        leafletMap.removeLayer(zoneLayer);
-        zoneLayer = null;
-    }
+    function buildZoneLayer() {
+        if (zoneLayer) {
+            leafletMap.removeLayer(zoneLayer);
+            zoneLayer = null;
+        }
 
-    // Create layer with simplified styling for speed
-    zoneLayer = L.geoJSON(
+        zoneLayer = L.geoJSON(
         { type: 'FeatureCollection', features: features },
         {
             style: function (feature) {
@@ -231,20 +280,58 @@ async function renderMap() {
                 });
             }
         }
-    ).addTo(leafletMap);
+        ).addTo(leafletMap);
 
-    // Fit bounds
-    if (features.length > 0 && zoneLayer.getBounds().isValid()) {
-        leafletMap.fitBounds(zoneLayer.getBounds(), {
-            padding: [30, 30],
-            maxZoom: 13
-        });
-    } else {
-        leafletMap.setView([40.7128, -73.95], 11);
+        return (features.length > 0 && zoneLayer.getBounds().isValid())
+            ? zoneLayer.getBounds()
+            : null;
     }
+
+    // Camera transition: keep spatial context between borough views instead
+    // of an instant jump.
+    //  - all -> specific, specific -> all: fly straight there, build layer first
+    //  - specific -> different specific: fly out to the city view WITH the
+    //    old layer still showing (so both boroughs' relative position is
+    //    visible), pause briefly, THEN swap to the new filtered layer and
+    //    fly in. This avoids showing the new (sparse, filtered) layer
+    //    floating alone on a zoomed-out city view.
+    var isFirstRender = (previousBorough === null);
+    var switchingBetweenTwoBoroughs = !isFirstRender && previousBorough && currentBorough && previousBorough !== currentBorough;
+
+    if (switchingBetweenTwoBoroughs) {
+        leafletMap.flyTo(CITY_CENTER, CITY_ZOOM, { duration: FLY_DURATION });
+        setTimeout(function () {
+            var bounds = buildZoneLayer();
+            if (bounds) {
+                leafletMap.flyToBounds(bounds, { padding: [30, 30], maxZoom: 13, duration: FLY_DURATION });
+            } else {
+                leafletMap.flyTo(CITY_CENTER, CITY_ZOOM, { duration: FLY_DURATION });
+            }
+        }, (FLY_DURATION * 1000) + FLY_OUT_PAUSE_MS);
+    } else {
+        var targetBounds = buildZoneLayer();
+        if (isFirstRender) {
+            // true cold start - no prior view to transition from, jump straight there
+            if (targetBounds) {
+                leafletMap.fitBounds(targetBounds, { padding: [30, 30], maxZoom: 13 });
+            } else {
+                leafletMap.setView(CITY_CENTER, CITY_ZOOM);
+            }
+        } else if (targetBounds) {
+            leafletMap.flyToBounds(targetBounds, { padding: [30, 30], maxZoom: 13, duration: FLY_DURATION });
+        } else {
+            leafletMap.flyTo(CITY_CENTER, CITY_ZOOM, { duration: FLY_DURATION });
+        }
+    }
+
+    previousBorough = currentBorough;
 
     isMapReady = true;
     updateLegend(currentMetric, boroughRanges);
+
+    if (loadingEl) {
+        loadingEl.classList.add('map-loading--hidden');
+    }
 }
 
 // Update legend
@@ -319,6 +406,12 @@ function initMap() {
         center: [40.7128, -73.95],
         zoom: 11,
         zoomControl: true,
+        // Fractional zoom: makes every zoom input (wheel, pinch, +/- buttons,
+        // double-click) move by smooth sub-integer steps instead of jumping
+        // a full zoom level at a time.
+        zoomSnap: 0.25,
+        zoomDelta: 0.5,
+        wheelPxPerZoomLevel: 100,
         // ENABLE SMOOTH ZOOM AND SCROLL
         fadeAnimation: true,
         zoomAnimation: true,
@@ -326,8 +419,14 @@ function initMap() {
         inertia: true,
         inertiaDeceleration: 3000,
         inertiaMaxSpeed: 1500,
-        wheelDebounceTime: 40,
-        wheelPxPerZoomLevel: 60
+        wheelDebounceTime: 20,
+        // touchscreen: smooth pinch-to-zoom centered on the pinch point
+        touchZoom: 'center',
+        // mouse: smooth scroll-wheel zoom centered on the cursor
+        scrollWheelZoom: true,
+        // double-click / double-tap zoom uses the same fractional step
+        doubleClickZoom: true,
+        tap: true
     });
 
     var theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
@@ -360,7 +459,7 @@ function updateMapTheme() {
     tileLayer = L.tileLayer(TILE_URLS[theme], {
         attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
         subdomains: 'abcd',
-        maxZoom: 14
+        maxZoom: 19
     }).addTo(leafletMap);
 }
 
@@ -373,18 +472,6 @@ window.map_invalidateSize = function () {
 
 // Event listeners
 document.addEventListener('DOMContentLoaded', function () {
-    console.log('DOM ready');
-    setTimeout(initMap, 200);
-
-    var applyBtn = document.getElementById('apply-map-filters');
-    if (applyBtn) {
-        applyBtn.addEventListener('click', function (e) {
-            e.preventDefault();
-            console.log('Apply clicked');
-            renderMap();
-        });
-    }
-
     document.getElementById('map-metric')?.addEventListener('change', renderMap);
     document.getElementById('map-borough')?.addEventListener('change', renderMap);
 

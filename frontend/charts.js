@@ -17,7 +17,22 @@ var hourlyViewMode = 'bar';
 
 // KPI cards
 
+function showKpiSkeletons() {
+  document.querySelectorAll('.kpi-card__medallion').forEach(function(el) {
+    el.classList.add('skeleton');
+    el.textContent = '';
+  });
+}
+
+function clearKpiSkeletons() {
+  document.querySelectorAll('.kpi-card__medallion').forEach(function(el) {
+    el.classList.remove('skeleton');
+  });
+}
+
 function renderSummary(summary) {
+  clearKpiSkeletons();
+
   var formatNumber = function(val) {
     if (val === null || val === undefined || isNaN(val)) return '0';
     return val.toLocaleString();
@@ -51,6 +66,7 @@ function renderSummary(summary) {
 // Hourly volume
 
 function renderHourlyChart(data) {
+  clearChartSkeleton('hourly-chart');
   var colors = themeColors();
   var ctx = document.getElementById('hourly-chart');
 
@@ -96,6 +112,7 @@ function toggleHourlyView() {
 // Top pickup zones
 
 function renderTopZonesChart(data) {
+  clearChartSkeleton('top-zones-chart');
   var colors = themeColors();
   if (topZonesChart) topZonesChart.destroy();
 
@@ -154,6 +171,7 @@ function linearRegression(points) {
 }
 
 function renderScatterChart(points, showTrend) {
+  clearChartSkeleton('scatter-chart');
   var colors = themeColors();
   if (scatterChart) scatterChart.destroy();
 
@@ -204,6 +222,7 @@ function renderScatterChart(points, showTrend) {
 // Payment split donut
 
 function renderPaymentChart(data) {
+  clearChartSkeleton('payment-chart');
   var colors = themeColors();
   if (paymentChart) paymentChart.destroy();
 
@@ -277,6 +296,38 @@ function showChartError(canvasId, message) {
   card.innerHTML = '<p class="chart-card__error">Could not load this chart: ' + message + '</p>';
 }
 
+function showChartSkeleton(canvasId, barCount) {
+  var canvas = document.getElementById(canvasId);
+  var card = canvas ? canvas.closest('.chart-card__body') : null;
+  if (!card) return;
+
+  // keep the canvas in the DOM (hidden) so chart render functions still
+  // find it via getElementById once data arrives
+  canvas.style.display = 'none';
+
+  var existing = card.querySelector('.chart-card__skeleton');
+  if (existing) return; // already showing
+
+  var bars = '';
+  for (var i = 0; i < (barCount || 6); i++) {
+    bars += '<div class="skeleton"></div>';
+  }
+  var skeleton = document.createElement('div');
+  skeleton.className = 'chart-card__skeleton';
+  skeleton.innerHTML = bars;
+  card.appendChild(skeleton);
+}
+
+function clearChartSkeleton(canvasId) {
+  var canvas = document.getElementById(canvasId);
+  var card = canvas ? canvas.closest('.chart-card__body') : null;
+  if (!card) return;
+
+  var skeleton = card.querySelector('.chart-card__skeleton');
+  if (skeleton) skeleton.remove();
+  canvas.style.display = '';
+}
+
 function loadDashboard() {
   console.log('Loading dashboard...');
   
@@ -289,7 +340,13 @@ function loadDashboard() {
   var cachedHourly = DataStore.load('hourly');
   var cachedTopZones = DataStore.load('topZones');
   var cachedPayment = DataStore.load('payment');
-  
+
+  if (!cachedSummary) showKpiSkeletons();
+  if (!cachedHourly) showChartSkeleton('hourly-chart', 24);
+  if (!cachedTopZones) showChartSkeleton('top-zones-chart', 8);
+  if (!cachedPayment) showChartSkeleton('payment-chart', 4);
+  showChartSkeleton('scatter-chart', 10);
+
   if (cachedSummary) {
     console.log('Rendering cached summary');
     renderSummary(cachedSummary);
@@ -385,10 +442,10 @@ document.addEventListener('DOMContentLoaded', function() {
   });
 
   document.getElementById('theme-toggle')?.addEventListener('click', function() {
-    setTimeout(loadDashboard, 0);
+    setTimeout(refreshTheme, 0);
   });
   document.getElementById('theme-toggle-mobile')?.addEventListener('click', function() {
-    setTimeout(loadDashboard, 0);
+    setTimeout(refreshTheme, 0);
   });
 
   document.getElementById('global-date')?.addEventListener('change', function() {

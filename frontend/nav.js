@@ -1,4 +1,5 @@
 const SECTIONS = ['dashboard', 'trips', 'map', 'about'];
+const SECTION_STORAGE_KEY = 'nyc_mobility_active_section';
 
 function showSection(name) {
   SECTIONS.forEach(function(section) {
@@ -15,6 +16,12 @@ function showSection(name) {
     link.classList.toggle('bottomnav__link--active', link.dataset.section === name);
   });
 
+  try {
+    sessionStorage.setItem(SECTION_STORAGE_KEY, name);
+  } catch (e) {
+    // sessionStorage unavailable - section just won't survive reload
+  }
+
   if (name === 'map' && window.map_invalidateSize) {
     window.map_invalidateSize();
   }
@@ -27,6 +34,17 @@ function initNav() {
       showSection(link.dataset.section);
     });
   });
+
+  // restore whichever section was active before reload
+  var savedSection = null;
+  try {
+    savedSection = sessionStorage.getItem(SECTION_STORAGE_KEY);
+  } catch (e) {
+    // ignore
+  }
+  if (savedSection && SECTIONS.indexOf(savedSection) !== -1) {
+    showSection(savedSection);
+  }
 }
 
 // Theme toggle with localStorage caching
