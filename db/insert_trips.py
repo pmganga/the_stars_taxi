@@ -89,6 +89,19 @@ try:
     conn.commit()
     print(f"[OK] Indexes built successfully in {time.time() - index_start:.2f} seconds!")
 
+trips = trips[columns_we_need]
+
+batch_size = 10000
+total = len(trips)
+
+for i in range(0, total, batch_size):
+    batch = trips.iloc[i:i + batch_size]
+    batch.to_sql("trips", conn, if_exists="append", index=False)
+    print(f"Inserted {min(i + batch_size, total):,} of {total:,} rows", end="\r")
+
+conn.commit()
+conn.close()
+print("\nDone.")
 except Exception as e:
     print(f"\n[ERROR] Transaction failed, rolling back: {e}")
     conn.rollback()
