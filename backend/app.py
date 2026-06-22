@@ -2,12 +2,23 @@
 
 import os
 import sqlite3
-from flask import Flask, jsonify, request, g
+import time
+from functools import lru_cache
+from flask import Flask, jsonify, request, g, send_from_directory
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder='../frontend', static_url_path='')
 
 # path matches DEFAULT_DB_PATH in db/setup_db.py
-DB_PATH = os.path.join(os.path.dirname(__file__), "..", "db", "mobility.db")
+DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "db", "mobility.db")
+
+# Serve frontend files
+@app.route('/')
+def serve_frontend():
+    return send_from_directory('../frontend', 'index.html')
+
+@app.route('/<path:path>')
+def serve_static(path):
+    return send_from_directory('../frontend', path)
 
 
 # database helpers
@@ -17,6 +28,10 @@ def get_db():
         g.db = sqlite3.connect(DB_PATH)
         g.db.row_factory = sqlite3.Row
         g.db.execute("PRAGMA foreign_keys = ON")
+        # Enable WAL mode for better concurrent reads
+        g.db.execute("PRAGMA journal_mode=WAL")
+        # Increase cache size for better performance
+        g.db.execute("PRAGMA cache_size=-100000")
     return g.db
 
 
@@ -33,6 +48,21 @@ def query_db(sql, params=()):
     return [dict(row) for row in rows]
 
 
+# Simple cache
+cache = {}
+CACHE_TTL = 300  # 5 minutes
+
+def get_cached(key, func, *args, **kwargs):
+    current_time = time.time()
+    if key in cache:
+        data, timestamp = cache[key]
+        if current_time - timestamp < CACHE_TTL:
+            return data
+    data = func(*args, **kwargs)
+    cache[key] = (data, current_time)
+    return data
+
+
 # CORS - required so fetch() calls from index.html are not blocked by the browser
 
 @app.after_request
@@ -44,15 +74,6 @@ def add_cors_headers(response):
 
 
 # GET /api/trips
-# query params map to filter controls in frontend/index.html:
-#   borough      <- #borough-filter   -> zones.borough via pickup zone JOIN
-#   min_fare     <- #min-fare         -> trips.fare_amount
-#   max_fare     <- #max-fare         -> trips.fare_amount
-#   min_distance <- #min-distance     -> trips.trip_distance
-#   max_distance <- #max-distance     -> trips.trip_distance
-#   time_of_day  <- #hour-filter      -> trips.time_of_day
-#   date         <- #global-date      -> DATE(trips.pickup_datetime)
-
 @app.route("/api/trips")
 def get_trips():
     borough      = request.args.get("borough")
@@ -63,9 +84,6 @@ def get_trips():
     time_of_day  = request.args.get("time_of_day")
     date         = request.args.get("date")
 
-    # index.html #hour-filter has an "evening" option
-    # feature_engineering.py only writes morning, afternoon, night to the database
-    # evening has no matching rows so it is treated as no filter
     if time_of_day in ("all", "evening", None, ""):
         time_of_day = None
 
@@ -95,6 +113,10 @@ def get_trips():
     """
     params = []
 
+    if date:
+        sql += " AND DATE(t.pickup_datetime) = ?"
+        params.append(date)
+    
     if borough and borough != "all":
         sql += " AND pz.borough = ?"
         params.append(borough)
@@ -113,11 +135,8 @@ def get_trips():
     if time_of_day:
         sql += " AND t.time_of_day = ?"
         params.append(time_of_day)
-    if date:
-        sql += " AND DATE(t.pickup_datetime) = ?"
-        params.append(date)
 
-    sql += " LIMIT 500"
+    sql += " LIMIT 200"
 
     try:
         return jsonify(query_db(sql, params)), 200
@@ -126,13 +145,6 @@ def get_trips():
 
 
 # GET /api/zones
-# used by frontend/map.js for the Leaflet choropleth layer
-# metric param maps to #map-metric in index.html:
-#   pickup_count  -> COUNT trips where pu_location_id matches
-#   dropoff_count -> COUNT trips where do_location_id matches
-#   avg_fare      -> AVG fare_amount for pickup zone
-# borough param maps to #map-borough
-
 @app.route("/api/zones")
 def get_zones():
     metric  = request.args.get("metric", "pickup_count")
@@ -140,6 +152,16 @@ def get_zones():
 
     if metric not in ("pickup_count", "dropoff_count", "avg_fare"):
         metric = "pickup_count"
+
+    # CHANGED: cache key includes metric+borough since, unlike the other
+    # cached routes below, this one takes query params that change the
+    # result. Without this, every dropdown change re-runs the correlated
+    # subquery per zone from scratch (slow on ~7.49M trip rows).
+    cache_key = f"zones_{metric}_{borough or 'all'}"
+    if cache_key in cache:
+        data, timestamp = cache[cache_key]
+        if time.time() - timestamp < CACHE_TTL:
+            return jsonify(data), 200
 
     if metric == "pickup_count":
         metric_sql = "(SELECT COUNT(*) FROM trips WHERE pu_location_id = z.zone_id)"
@@ -153,12 +175,9 @@ def get_zones():
             z.zone_id,
             z.borough,
             z.zone_name,
-            z.service_zone,
-            zg.geojson,
             {metric_sql} AS metric_value
         FROM zones z
-        LEFT JOIN zone_geometry zg ON z.zone_id = zg.zone_id
-        WHERE zg.geojson IS NOT NULL
+        WHERE z.zone_id IS NOT NULL
     """
     params = []
 
@@ -166,26 +185,34 @@ def get_zones():
         sql += " AND z.borough = ?"
         params.append(borough)
 
+    sql += " LIMIT 300"
+
     try:
-        return jsonify(query_db(sql, params)), 200
+        # CHANGED: store result in cache before returning
+        data = query_db(sql, params)
+        cache[cache_key] = (data, time.time())
+        return jsonify(data), 200
     except sqlite3.Error as e:
         return jsonify({"error": str(e)}), 500
 
 
 # GET /api/summary/borough
-# used by KPI cards in index.html (total-trips, total-revenue, avg-fare,
-# avg-distance, avg-tip-pct) and the bar chart of average fare per borough
-
 @app.route("/api/summary/borough")
 def summary_borough():
+    cache_key = 'summary_borough'
+    if cache_key in cache:
+        data, timestamp = cache[cache_key]
+        if time.time() - timestamp < CACHE_TTL:
+            return jsonify(data), 200
+    
     sql = """
-        SELECT
-            pz.borough,
-            COUNT(*)                                             AS trip_count,
-            ROUND(AVG(t.fare_amount), 2)                        AS avg_fare,
-            ROUND(SUM(t.total_amount), 2)                       AS total_revenue,
-            ROUND(AVG(t.trip_distance), 2)                      AS avg_distance,
-            ROUND(AVG(t.tip_amount * 100.0 / t.fare_amount), 2) AS avg_tip_pct
+        SELECT 
+            COALESCE(pz.borough, 'Unknown') AS borough,
+            COUNT(*) AS trip_count,
+            ROUND(AVG(t.fare_amount), 2) AS avg_fare,
+            ROUND(SUM(t.total_amount), 2) AS total_revenue,
+            ROUND(AVG(t.trip_distance), 2) AS avg_distance,
+            ROUND(AVG(t.tip_amount * 100.0 / NULLIF(t.fare_amount, 0)), 2) AS avg_tip_pct
         FROM trips t
         LEFT JOIN zones pz ON t.pu_location_id = pz.zone_id
         WHERE pz.borough IS NOT NULL
@@ -193,40 +220,40 @@ def summary_borough():
         ORDER BY trip_count DESC
     """
     try:
-        return jsonify(query_db(sql)), 200
+        data = query_db(sql)
+        cache[cache_key] = (data, time.time())
+        return jsonify(data), 200
     except sqlite3.Error as e:
         return jsonify({"error": str(e)}), 500
 
 
 # GET /api/summary/hourly
-# used by #hourly-chart in index.html - trips by hour of day
-# pickup_hour is not a stored column so hour is extracted with strftime
-# from the TEXT pickup_datetime field at query time
-
 @app.route("/api/summary/hourly")
 def summary_hourly():
+    cache_key = 'summary_hourly'
+    if cache_key in cache:
+        data, timestamp = cache[cache_key]
+        if time.time() - timestamp < CACHE_TTL:
+            return jsonify(data), 200
+    
     sql = """
         SELECT
             CAST(strftime('%H', pickup_datetime) AS INTEGER) AS hour,
-            COUNT(*)                                         AS trip_count,
-            ROUND(AVG(fare_amount), 2)                       AS avg_fare
+            COUNT(*) AS trip_count
         FROM trips
         WHERE pickup_datetime IS NOT NULL
         GROUP BY hour
         ORDER BY hour
     """
     try:
-        return jsonify(query_db(sql)), 200
+        data = query_db(sql)
+        cache[cache_key] = (data, time.time())
+        return jsonify(data), 200
     except sqlite3.Error as e:
         return jsonify({"error": str(e)}), 500
 
 
 # GET /api/top-routes
-# used by #top-zones-chart in index.html
-# does NOT use SQL ORDER BY - raw counts go to dsa/top_routes.py
-# which finds top K using a hand-built hash map and manual selection sort
-# k param controls how many zones to return, default 10
-
 @app.route("/api/top-routes")
 def top_routes():
     k = request.args.get("k", default=10, type=int)
@@ -266,13 +293,14 @@ def top_routes():
 
 
 # GET /api/summary/payment
-# used by #payment-chart in index.html (Card vs cash vs other)
-# payment_type is stored as integer in schema.sql:
-#   1 = Credit card, 2 = Cash, 3 = No charge, 4 = Dispute, 5 = Unknown, 6 = Voided
-# charts.js maps integer codes to labels when rendering the donut chart
-
 @app.route("/api/summary/payment")
 def summary_payment():
+    cache_key = 'summary_payment'
+    if cache_key in cache:
+        data, timestamp = cache[cache_key]
+        if time.time() - timestamp < CACHE_TTL:
+            return jsonify(data), 200
+    
     sql = """
         SELECT
             payment_type,
@@ -283,23 +311,21 @@ def summary_payment():
         ORDER BY trip_count DESC
     """
     try:
-        return jsonify(query_db(sql)), 200
+        data = query_db(sql)
+        cache[cache_key] = (data, time.time())
+        return jsonify(data), 200
     except sqlite3.Error as e:
         return jsonify({"error": str(e)}), 500
 
 
-# error handlers - all return JSON so charts.js and filters.js
-# can parse the message rather than receiving an HTML error page
-
+# error handlers
 @app.errorhandler(400)
 def bad_request(e):
     return jsonify({"error": "Bad request", "message": str(e)}), 400
 
-
 @app.errorhandler(404)
 def not_found(e):
     return jsonify({"error": "Not found", "message": str(e)}), 404
-
 
 @app.errorhandler(500)
 def server_error(e):
