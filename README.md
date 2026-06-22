@@ -1,6 +1,3 @@
-## README.md
-
-
 # NYC Mobility Explorer
 
 ## Overview
@@ -94,7 +91,7 @@ clone_thestarstaxi/
 **1. Install Python dependencies**
 
 ```bash
-pip install flask pandas numpy
+pip install -r requirements.txt
 ```
 
 **2. Place data files in `data/` folder**

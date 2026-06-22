@@ -1,0 +1,9 @@
+flask>=2.3.0
+pandas>=1.5.0
+
+# Shapefile conversion (used to convert taxi_zones.zip → GeoJSON
+# if you need to regenerate frontend/taxi_zones.geojson from source)
+# Safe to skip if you're using the pre-built taxi_zones.geojson file.
+pyshp>=2.3.0
+pyproj>=3.4.0
+shapely>=2.0.0
