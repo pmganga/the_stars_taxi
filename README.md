@@ -259,7 +259,7 @@ def top_k_routes(zone_counts: dict, k: int) -> list:
 
 ## Video Walkthrough
 
-Link:(https://www.youtube.com/@DavineUwase)
+[Watch here](https://www.youtube.com/@DavineUwase)
 
 ---
 
@@ -270,6 +270,14 @@ Link:(https://www.youtube.com/@DavineUwase)
 | Davine Uwase | Backend / Data Engineer |
 | Philip Mbogo | Backend / API Developer |
 | Joseph Marube | Frontend Developer |
+
+---
+
+---
+
+## Team Participation Sheet
+
+You can view our [Team Participation Sheet](https://docs.google.com/spreadsheets/d/1V8Yre67fQdMM7BKJ0Pfw79jlBEsOlj7nYS3mHivdDYk/edit?usp=sharing)
 
 ---
 
