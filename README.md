@@ -47,11 +47,11 @@ NYC Mobility Explorer is a full-stack dashboard for analyzing NYC Yellow Taxi tr
 ## Project Structure
 
 ```
-clone_thestarstaxi/
+the_stars_taxi/
 ├── backend/
-│   ├── app.py              # Flask API (6 endpoints)
+│   ├── app.py              
 │   └── dsa/
-│       └── top_routes.py   # Manual selection sort
+│       └── top_routes.py   
 ├── data/
 │   ├── clean_pipeline.py
 │   ├── feature_engineering.py
@@ -259,7 +259,7 @@ def top_k_routes(zone_counts: dict, k: int) -> list:
 
 ## Video Walkthrough
 
-[Watch here](https://www.youtube.com/@DavineUwase)
+Watch our video walkthrough [here](https://www.youtube.com/@DavineUwase)
 
 ---
 
